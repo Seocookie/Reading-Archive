@@ -36,14 +36,12 @@
         .section { display: none; }
         .section.active { display: block; }
 
-        /* 검색바 영역 */
         .search-wrapper { position: sticky; top: 0; background: var(--bg-color); z-index: 100; padding-bottom: 10px; }
         .search-bar, input, textarea, select { 
             width: 100%; padding: 12px; border: 1px solid #333; border-radius: 12px; 
             background: #000; color: white; outline: none; box-sizing: border-box; margin-bottom: 10px;
         }
 
-        /* 그리드 및 카드 */
         .shelf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px 10px; }
         .book-card { cursor: pointer; position: relative; }
         
@@ -77,18 +75,6 @@
         }
         .card-stars { font-size: 0.65rem; color: var(--point-color); margin-top: 3px; }
 
-        /* 검색 문장 하이라이트 */
-        .search-match {
-            font-size: 0.75rem; color: var(--point-color);
-            background: rgba(241, 196, 15, 0.1); padding: 8px;
-            border-radius: 8px; margin-top: 8px; border-left: 3px solid var(--point-color);
-            line-height: 1.4; 
-            display: -webkit-box; -webkit-box-orient: vertical; 
-            -webkit-line-clamp: 2; line-clamp: 2;
-            overflow: hidden;
-        }
-
-        /* 서재 헤더 이미지 스타일 */
         .shelf-profile-header {
             display: flex; align-items: center; gap: 12px; margin-bottom: 15px;
         }
@@ -153,7 +139,7 @@
 
             <div id="shelf-content-area" style="display:none; margin-top:10px;">
                 <div id="shelf-header-info"></div>
-                <button id="back-to-shelves-btn" class="btn btn-sub" onclick="goBackToShelves()" style="margin-bottom: 20px; width: auto; padding: 8px 15px; font-size: 0.8rem;">← 서재 목록</button>
+                <button id="back-to-shelves-btn" class="btn btn-sub" onclick="history.back()" style="margin-bottom: 20px; width: auto; padding: 8px 15px; font-size: 0.8rem;">← 서재 목록</button>
                 <div id="shelf-book-list" class="shelf-grid"></div>
             </div>
         </div>
@@ -161,7 +147,7 @@
 
     <div id="book-detail-page">
         <div class="detail-header">
-            <button class="back-btn" onclick="closeDetailPage()">✕</button>
+            <button class="back-btn" onclick="history.back()">✕</button>
             <span style="font-size: 0.8rem; color: #888;">상세 보기</span>
         </div>
         <div id="detail-body"></div>
@@ -221,6 +207,24 @@
         let searchTimer;
         let allMyBooks = [];
 
+        // 초기 로딩
+        loadShelves();
+
+        // 브라우저 뒤로가기 제어 (History API)
+        window.onpopstate = function(event) {
+            if (event.state && event.state.view === 'shelf') {
+                // 서재 상세로 뒤로 온 경우
+                openShelfDetail(event.state.id, true); 
+            } else if (event.state && event.state.view === 'detail') {
+                // 책 상세로 뒤로 온 경우
+                openDetailPage(event.state.id, true);
+            } else {
+                // 메인 목록으로 뒤로 온 경우
+                closeDetailPage();
+                goBackToShelves(true);
+            }
+        };
+
         async function loadShelves() {
             const snap = await db.collection("shelves").get();
             const container = document.getElementById('shelf-container');
@@ -234,80 +238,17 @@
                 </div>`).join('');
         }
 
-        // [윈도우 탐색기형 통합 검색 로직]
-        function filterLibraryBooks() {
-            const keyword = document.getElementById('library-filter-search').value.toLowerCase();
-            const shelfContainer = document.getElementById('shelf-container');
-            const shelfContentArea = document.getElementById('shelf-content-area');
-            const shelfBookList = document.getElementById('shelf-book-list');
-            const headerInfo = document.getElementById('shelf-header-info');
-
-            if (keyword.length < 1) {
-                if (currentShelfId) openShelfDetail(currentShelfId);
-                else goBackToShelves();
-                return;
-            }
-
-            let searchScope = allMyBooks;
-            let currentShelfData = null;
-            if (currentShelfId) {
-                searchScope = allMyBooks.filter(b => b.shelf === currentShelfId);
-                // 현재 서재 이미지 유지를 위해 데이터 찾기
-            }
-
-            const filtered = searchScope.filter(b => {
-                const inQuotes = (b.quotes || []).some(q => q.toLowerCase().includes(keyword));
-                const inComment = (b.comment || "").toLowerCase().includes(keyword);
-                const inTitle = (b.title || "").toLowerCase().includes(keyword);
-                const inAuthor = (b.author || "").toLowerCase().includes(keyword);
-                return inQuotes || inComment || inTitle || inAuthor;
-            });
-
-            shelfContainer.style.display = 'none';
-            shelfContentArea.style.display = 'block';
-            
-            // 검색 헤더 표시
-            headerInfo.innerHTML = `
-                <div class="shelf-profile-header">
-                    <div style="font-size: 1.2rem;">🔍</div>
-                    <h3 style="color:var(--point-color); margin:0;">${currentShelfId ? '현재 서재 내 검색' : '전체 서재 검색'}</h3>
-                </div>`;
-
-            shelfBookList.className = ""; 
-            if (filtered.length === 0) {
-                shelfBookList.innerHTML = `<p style="text-align:center; color:#555; padding:40px 0;">검색 결과가 없습니다.</p>`;
-                return;
-            }
-
-            shelfBookList.innerHTML = filtered.map(b => {
-                const stars = "⭐".repeat(b.rating || 0);
-                let matchSnippet = "";
-                const foundQuote = (b.quotes || []).find(q => q.toLowerCase().includes(keyword));
-                if (foundQuote) matchSnippet = `<div class="search-match">💬 인용구: "...${foundQuote}..."</div>`;
-                else if ((b.comment || "").toLowerCase().includes(keyword)) matchSnippet = `<div class="search-match">📝 감상평: "...${b.comment}..."</div>`;
-
-                return `
-                    <div style="display:flex; gap:12px; background:var(--card-bg); padding:15px; border-radius:15px; cursor:pointer; margin-bottom:12px;" onclick="openDetailPage('${b.id}')">
-                        <img src="${b.thumbnail}" style="width:55px; height:80px; border-radius:6px; object-fit:cover;" onerror="this.src='https://via.placeholder.com/150'">
-                        <div style="flex:1; min-width:0;">
-                            <div class="card-title" style="font-size:0.95rem;">${b.title}</div>
-                            <div class="card-author">${b.author || '작가 미상'} | ${stars}</div>
-                            ${matchSnippet}
-                        </div>
-                    </div>`;
-            }).join('');
-        }
-
-        // [서재 상세 진입 - 프로필 이미지 적용]
-        async function openShelfDetail(id) {
+        // 서재 상세 보기
+        async function openShelfDetail(id, isBack = false) {
             currentShelfId = id;
+            if(!isBack) history.pushState({view: 'shelf', id: id}, ""); // 역사 추가
+
             document.getElementById('shelf-container').style.display = 'none';
             document.getElementById('shelf-content-area').style.display = 'block';
             
             const sDoc = await db.collection("shelves").doc(id).get();
             const sData = sDoc.data();
             
-            // 폴더 이모지 대신 서재 프로필 이미지 표시
             document.getElementById('shelf-header-info').innerHTML = `
                 <div class="shelf-profile-header">
                     <img src="${sData.img}" class="shelf-profile-img" onerror="this.src='https://via.placeholder.com/150'">
@@ -338,20 +279,25 @@
             });
         }
 
-        function goBackToShelves() {
+        function goBackToShelves(isBack = false) {
             currentShelfId = null;
+            if(!isBack) history.pushState(null, ""); // 메인으로 상태 리셋
             document.getElementById('library-filter-search').value = ""; 
             document.getElementById('shelf-container').style.display = 'block';
             document.getElementById('shelf-content-area').style.display = 'none';
             loadShelves();
         }
 
-        async function openDetailPage(bookId) {
+        // 책 상세 페이지
+        async function openDetailPage(bookId, isBack = false) {
+            if(!isBack) history.pushState({view: 'detail', id: bookId}, ""); // 역사 추가
+
             const doc = await db.collection("my_books").doc(bookId).get();
             const b = doc.data();
             const page = document.getElementById('book-detail-page');
             const stars = "⭐".repeat(b.rating || 0);
             const quotesHtml = (b.quotes || []).map(q => `<div class="quote-item">"${q}"</div>`).join('');
+            
             document.getElementById('detail-body').innerHTML = `
                 <div class="detail-hero">
                     <img src="${b.thumbnail}" class="hero-cover" onerror="this.src='https://via.placeholder.com/150'">
@@ -377,6 +323,52 @@
             page.style.display = 'block'; document.body.style.overflow = 'hidden';
         }
 
+        function closeDetailPage() { 
+            document.getElementById('book-detail-page').style.display = 'none'; 
+            document.body.style.overflow = 'auto'; 
+        }
+
+        // 검색 및 필터 로직
+        function filterLibraryBooks() {
+            const keyword = document.getElementById('library-filter-search').value.toLowerCase();
+            const shelfContainer = document.getElementById('shelf-container');
+            const shelfContentArea = document.getElementById('shelf-content-area');
+            const shelfBookList = document.getElementById('shelf-book-list');
+            const headerInfo = document.getElementById('shelf-header-info');
+
+            if (keyword.length < 1) {
+                if (currentShelfId) openShelfDetail(currentShelfId, true);
+                else goBackToShelves(true);
+                return;
+            }
+
+            let searchScope = allMyBooks;
+            if (currentShelfId) searchScope = allMyBooks.filter(b => b.shelf === currentShelfId);
+
+            const filtered = searchScope.filter(b => {
+                const inQuotes = (b.quotes || []).some(q => q.toLowerCase().includes(keyword));
+                const inComment = (b.comment || "").toLowerCase().includes(keyword);
+                const inTitle = (b.title || "").toLowerCase().includes(keyword);
+                const inAuthor = (b.author || "").toLowerCase().includes(keyword);
+                return inQuotes || inComment || inTitle || inAuthor;
+            });
+
+            shelfContainer.style.display = 'none';
+            shelfContentArea.style.display = 'block';
+            headerInfo.innerHTML = `<div class="shelf-profile-header"><h3>🔍 검색 결과</h3></div>`;
+
+            shelfBookList.className = ""; 
+            shelfBookList.innerHTML = filtered.map(b => `
+                <div style="display:flex; gap:12px; background:var(--card-bg); padding:15px; border-radius:15px; cursor:pointer; margin-bottom:12px;" onclick="openDetailPage('${b.id}')">
+                    <img src="${b.thumbnail}" style="width:55px; height:80px; border-radius:6px; object-fit:cover;">
+                    <div style="flex:1;">
+                        <div class="card-title">${b.title}</div>
+                        <div class="card-author">${b.author}</div>
+                    </div>
+                </div>`).join('');
+        }
+
+        // 모달 및 기타 기능
         async function saveRecord() {
             const shelfVal = document.getElementById('shelf-select').value;
             const data = { 
@@ -385,7 +377,6 @@
                 publisher: document.getElementById('edit-publisher').value,
                 thumbnail: document.getElementById('edit-thumbnail').value,
                 status: document.getElementById('status-select').value, 
-                finishDate: document.getElementById('finish-date').value, 
                 rating: document.getElementById('rating-select').value, 
                 quotes: Array.from(document.querySelectorAll('.quote-item-input')).map(i => i.value).filter(v => v.trim()), 
                 comment: document.getElementById('comment-input').value, 
@@ -394,8 +385,9 @@
             };
             if(editingBookId) await db.collection("my_books").doc(editingBookId).update(data);
             else await db.collection("my_books").add(data);
-            closeModal('record-modal'); closeDetailPage();
-            if(currentShelfId) openShelfDetail(currentShelfId); else loadShelves();
+            closeModal('record-modal'); 
+            closeDetailPage();
+            loadShelves(); 
         }
 
         async function openRecordModal(book, isEdit = false, docId = null) {
@@ -406,8 +398,6 @@
             document.getElementById('edit-thumbnail').value = book.thumbnail || "";
             document.getElementById('quote-area').innerHTML = "";
             document.getElementById('status-select').value = book.status || 'wish';
-            document.getElementById('rating-select').value = book.rating || '5';
-            document.getElementById('comment-input').value = book.comment || '';
             if(isEdit) (book.quotes || []).forEach(q => addQuoteInput(q)); else addQuoteInput();
             const sSnap = await db.collection("shelves").get();
             document.getElementById('shelf-select').innerHTML = sSnap.docs.map(d => `<option value="${d.id}" ${book.shelf === d.id ? 'selected' : ''}>${d.data().name}</option>`).join('');
@@ -423,26 +413,20 @@
                 const data = await res.json();
                 document.getElementById('book-list').innerHTML = data.documents.map(b => `
                     <div style="display:flex; gap:12px; background:#1e1e1e; padding:10px; border-radius:10px; margin-bottom:10px; cursor:pointer;" onclick="openRecordModal({title:'${b.title.replace(/'/g,"")}', thumbnail:'${b.thumbnail}', author:'${b.authors.join(", ")}', publisher:'${b.publisher}'})">
-                        <img src="${b.thumbnail || 'https://via.placeholder.com/150'}" style="width:45px; border-radius:4px;">
-                        <div><div style="font-size:0.9rem; font-weight:bold;">${b.title}</div><small style="color:#777;">${b.authors[0]}</small></div>
-                    </div>`).join('') + `<div style="margin-top:20px; padding:15px; text-align:center; border:2px dashed #333; border-radius:12px; cursor:pointer; background:#1a1a1a;" onclick="openRecordModal({title:'${query}', thumbnail:'https://via.placeholder.com/150', author:'', publisher:''})"><div style="color:var(--point-color); font-weight:bold;">🔍 찾는 결과가 없나요? 직접 입력하기</div></div>`;
+                        <img src="${b.thumbnail || 'https://via.placeholder.com/150'}" style="width:45px;">
+                        <div><div style="font-size:0.9rem;">${b.title}</div></div>
+                    </div>`).join('');
             }, 400);
         });
-
-        async function prepareEdit(bookId) {
-            const doc = await db.collection("my_books").doc(bookId).get();
-            openRecordModal(doc.data(), true, bookId);
-        }
 
         function showSection(id) {
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.getElementById(id + '-section').classList.add('active');
-            if(id === 'search' || id === 'library') document.getElementById('tab-' + id).classList.add('active');
+            document.getElementById('tab-' + id).classList.add('active');
             if(id === 'library') goBackToShelves(); 
         }
 
-        function closeDetailPage() { document.getElementById('book-detail-page').style.display = 'none'; document.body.style.overflow = 'auto'; }
         function closeModal(id) { document.getElementById(id).style.display = 'none'; }
         function toggleDateInput() { document.getElementById('date-input-group').style.display = (document.getElementById('status-select').value === 'done') ? 'block' : 'none'; }
         function addQuoteInput(val = "") {
@@ -450,9 +434,11 @@
             div.innerHTML = `<input type="text" class="quote-item-input" value="${val}" style="flex:1;"><button onclick="this.parentElement.remove()" style="color:#f77; background:none; border:none; width:30px;">✕</button>`;
             document.getElementById('quote-area').appendChild(div);
         }
-        async function deleteBook(id) { if(confirm("정말 삭제하시겠습니까?")) { await db.collection("my_books").doc(id).delete(); closeDetailPage(); if(currentShelfId) openShelfDetail(currentShelfId); else loadShelves(); } }
-
-        loadShelves();
+        async function prepareEdit(bookId) {
+            const doc = await db.collection("my_books").doc(bookId).get();
+            openRecordModal(doc.data(), true, bookId);
+        }
+        async function deleteBook(id) { if(confirm("정말 삭제하시겠습니까?")) { await db.collection("my_books").doc(id).delete(); closeDetailPage(); loadShelves(); } }
     </script>
 </body>
 </html>
